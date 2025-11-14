@@ -16,18 +16,44 @@ import glosocket
 import gloutils
 
 
+port = 11123
 class Client:
+    _username: str = ""
+    _socket: socket.socket
     """Client pour le serveur mail @glo2000.ca 2025."""
 
     def __init__(self, destination: str) -> None:
-        """
-        Prépare et connecte le socket du client `_socket`.
+        _socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        Prépare un attribut `_username` pour stocker le nom d'utilisateur
-        courant. Laissé vide quand l'utilisateur n'est pas connecté.
-        """
+        try: 
+            host_ip = socket.gethostbyname(destination)
+        except socket.gaierror: 
+            print ("there was an error resolving the host", file=sys.stderr)
+            sys.exit(1) 
+
+        try:
+            _socket.connect((host_ip, port)) 
+        except socket.error:
+            print("Une erreur est survenue lors de la connexion au serveur.", file=sys.stderr)
+            exit(1)
 
     def _register(self) -> None:
+        username = input("Entrez un nom d'utilisateur: ")
+        password = getpass.getpass("Entrez un mot de passe: ")
+
+        payload: gloutils.AuthPayload = {
+            username,
+            password
+        }
+
+        message: gloutils.GloMessage = {
+            "header": gloutils.Headers.AUTH_REGISTER,
+            payload: payload
+        }
+
+        glosocket.send_mesg(self._socket, message)
+
         """
         Demande un nom d'utilisateur et un mot de passe et les transmet au
         serveur avec l'entête `AUTH_REGISTER`.
@@ -92,16 +118,45 @@ class Client:
         """
 
     def run(self) -> None:
-        """Point d'entrée du client."""
         should_quit = False
 
         while not should_quit:
-            if not self._username:
-                # Authentication menu
-                pass
-            else:
-                # Main menu
-                pass
+            try:
+                if not self._username:
+                    print(gloutils.CLIENT_AUTH_CHOICE)
+                    choice = input("Entrez votre choix [1-3]: ")
+                    match (choice):
+                        case "1":
+                            self._register()
+                        case "2":
+                            self._login()
+                        case "3":
+                            should_quit = True
+                        case _:
+                            print("Choix invalide, veuillez réessayer.")
+                    pass
+                else:
+                    print(gloutils.CLIENT_USE_CHOICES)
+                    choice = input("Entrez votre choix [1-4]: ")
+                    match (choice):
+                        case "1":
+                            self._read_email()
+                        case "2":
+                            self._send_email()
+                        case "3":
+                            self._check_stats()
+                        case "4":
+                            self._logout()
+                        case _:
+                            print("Choix invalide, veuillez réessayer.")
+                    pass
+            except EOFError:
+                should_quit = True
+            except glosocket.GLOSocketError:
+                print("Connexion avec le serveur interrompue.")
+                exit(1)
+        self._quit()
+
 
 
 # NE PAS ÉDITER PASSÉ CE POINT
