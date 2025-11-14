@@ -33,10 +33,25 @@ class Server:
 
         S'assure que les dossiers de données du serveur existent.
         """
-        # self._server_socket
-        # self._client_socs
-        # self._logged_users
-        # ...
+        try:
+            self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._server_socket.bind(("127.0.0.1", gloutils.APP_PORT))
+            self._server_socket.listen()
+            print(f"Listening on port {gloutils.APP_PORT}")
+        except socket.error:
+            sys.exit(1)
+
+        self._client_socs: list[socket.socket] = []
+        self._logged_users = {}
+        self.validate_directories()
+
+
+    def validate_directories(self) -> None:
+        if not os.path.isdir(f"./{gloutils.SERVER_DATA_DIR}"):
+            os.mkdir(f"./{gloutils.SERVER_DATA_DIR}")
+        if not os.path.isdir(f"./{gloutils.SERVER_DATA_DIR}/{gloutils.SERVER_LOST_DIR}"):
+            os.mkdir(f"./{gloutils.SERVER_DATA_DIR}/{gloutils.SERVER_LOST_DIR}")
 
     def cleanup(self) -> None:
         """Ferme toutes les connexions résiduelles."""
@@ -46,6 +61,8 @@ class Server:
 
     def _accept_client(self) -> None:
         """Accepte un nouveau client."""
+        new_soc, _ = self._server_socket.accept()
+        self._client_socs.append(new_soc)
 
     def _remove_client(self, client_soc: socket.socket) -> None:
         """Retire le client des structures de données et ferme sa connexion."""
@@ -117,10 +134,14 @@ class Server:
 
     def run(self):
         """Point d'entrée du serveur."""
-        waiters = []
+        waiters: list[socket.socket] = []
         while True:
             # Select readable sockets
+            result = select.select(self._client_socs + [self._server_socket], [], [])
+            waiters.append(result[0])
             for waiter in waiters:
+                if waiter == self._server_socket:
+                    self._accept_client()
                 # Handle sockets
                 pass
 
