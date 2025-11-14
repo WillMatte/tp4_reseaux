@@ -37,15 +37,19 @@ class Client:
         except socket.error:
             print("Une erreur est survenue lors de la connexion au serveur.", file=sys.stderr)
             exit(1)
+        print(f"Connected to server {host_ip} with port {gloutils.APP_PORT}")
+
 
     def _register(self) -> None:
         username = input("Entrez un nom d'utilisateur: ")
         password = getpass.getpass("Entrez un mot de passe: ")
 
         payload: gloutils.AuthPayload = {
-            username,
-            password
+            "username": username,
+            "password": password
         }
+
+        print(payload)
 
         message: gloutils.GloMessage = {
             "header": gloutils.Headers.AUTH_REGISTER,
