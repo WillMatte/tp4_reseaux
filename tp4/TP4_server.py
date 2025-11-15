@@ -44,7 +44,7 @@ class Server:
             sys.exit(1)
 
         self._client_socs: list[socket.socket] = []
-        self._logged_users: [socket.socket, str] = {}
+        self._logged_users: dict[socket.socket, str] = {}
         self.validate_directories()
 
 
@@ -68,6 +68,15 @@ class Server:
 
     def _remove_client(self, client_soc: socket.socket) -> None:
         """Retire le client des structures de données et ferme sa connexion."""
+        if client_soc in self._client_socs:
+            print("removing from client_socs")
+            self._client_socs.remove(client_soc)
+        if client_soc in self._logged_users:
+            print("removing from logged_users")
+            self._logged_users.pop(client_soc)
+        print("closing socket")
+        client_soc.close()
+
 
     def _create_account(
         self, client_soc: socket.socket, payload: gloutils.AuthPayload
@@ -172,6 +181,8 @@ class Server:
 
     def _logout(self, client_soc: socket.socket) -> None:
         """Déconnecte un utilisateur."""
+        self._remove_client(client_soc)
+
 
     def _get_email_list(self, client_soc: socket.socket) -> gloutils.GloMessage:
         """
@@ -210,6 +221,7 @@ class Server:
 
         Retourne un messange indiquant le succès ou l'échec de l'opération.
         """
+
         return gloutils.GloMessage()
 
     def run(self):
@@ -233,9 +245,12 @@ class Server:
                     match json.loads(data):
                         case {"header": gloutils.Headers.AUTH_LOGIN, "payload": payload}:
                             glosocket.send_mesg(waiter, json.dumps(self._login(waiter, payload)))
-                            print(self._logged_users)
                         case {"header": gloutils.Headers.AUTH_REGISTER, "payload": payload}:
                             glosocket.send_mesg(waiter, json.dumps(self._create_account(waiter, payload)))
+                        case {"header": gloutils.Headers.BYE}:
+                            self._remove_client(waiter)
+                        case {"header": gloutils.Headers.AUTH_LOGOUT}:
+                            self._logout(waiter)
                     #Handle sockets
                     pass
 

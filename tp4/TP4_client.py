@@ -96,6 +96,10 @@ class Client:
         Préviens le serveur de la déconnexion avec l'entête `BYE` et ferme le
         socket du client.
         """
+        message: gloutils.GloMessage = {
+            "header": gloutils.Headers.BYE
+        }
+        glosocket.send_mesg(self._socket, json.dumps(message))
 
     def _read_email(self) -> None:
         """
@@ -151,6 +155,7 @@ class Client:
                         case "2":
                             self._login()
                         case "3":
+                            self._quit()
                             should_quit = True
                         case _:
                             print("Choix invalide, veuillez réessayer.")
