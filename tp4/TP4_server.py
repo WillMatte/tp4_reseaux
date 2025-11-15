@@ -13,6 +13,7 @@ import os
 import select
 import socket
 import sys
+import re
 
 import glosocket
 import gloutils
@@ -78,8 +79,52 @@ class Server:
         associe le socket au nouvel l'utilisateur et retourne un succès,
         sinon retourne un message d'erreur.
         """
-        print("Creating account!")
-        return gloutils.GloMessage()
+        print("Creating account")
+        error = {}
+        if not self._validate_username(payload['username']):
+            error['username_error'] = \
+                "Le nom d'utilisateur ne peut contenir que des  caractères alphanumériques, _, . ou -"
+        if os.path.isdir(f"./{gloutils.SERVER_DATA_DIR}/{payload['username']}"):
+            error['username_error'] = \
+                "Le nom d'utilisateur est déjà utilisé"
+        if not self._validate_password(payload['password']):
+            error['password_error'] = \
+                "Le mot de passe doit avoir une taille supérieure ou égale à 10 caractères, " \
+                "contenir au moins un chiffre, une minuscule et une majuscule."
+        if error:
+            error_payload: gloutils.ErrorPayload = {
+                "error_messages": error
+            }
+            print("error in account creation")
+            return gloutils.GloMessage(
+                header=gloutils.Headers.ERROR,
+                payload=error_payload
+            )
+
+        self._create_user_dir(payload['username'])
+        self._hash_and_save_password(payload['username'], payload['password'])
+        print("account creation successful")
+        return gloutils.GloMessage(header=gloutils.Headers.OK)
+
+    @staticmethod
+    def _validate_username(username:str) -> bool:
+        pattern = re.compile(r'^[A-Za-z0-9_.-]+$')
+        return bool(pattern.fullmatch(username))
+
+    @staticmethod
+    def _validate_password(password:str) -> bool:
+        pattern = re.compile(r'^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z]).{10,}$')
+        return bool(pattern.fullmatch(password))
+
+    @staticmethod
+    def _create_user_dir(username:str) -> None:
+        os.mkdir(f"./{gloutils.SERVER_DATA_DIR}/{username}")
+
+    @staticmethod
+    def _hash_and_save_password(username: str, password: str):
+        password = hashlib.sha3_512(password.encode("utf-8")).hexdigest()
+        with open(f"./{gloutils.SERVER_DATA_DIR}/{username}/{gloutils.PASSWORD_FILENAME}.txt", "w") as file:
+            file.write(password)
 
     def _login(
         self, client_soc: socket.socket, payload: gloutils.AuthPayload
@@ -152,13 +197,13 @@ class Server:
                         self._logout(waiter)
                         continue
 
-                match json.loads(data):
-                    case {"header": gloutils.Headers.AUTH_LOGIN}:
-                        self._login(waiter, data)
-                    case {"header": gloutils.Headers.AUTH_REGISTER}:
-                        self._create_account(waiter, data)
-                #Handle sockets
-                pass
+                    match json.loads(data):
+                        case {"header": gloutils.Headers.AUTH_LOGIN}:
+                            self._login(waiter, data.payload)
+                        case {"header": gloutils.Headers.AUTH_REGISTER, "payload": payload}:
+                            glosocket.send_mesg(waiter, json.dumps(self._create_account(waiter, payload)))
+                    #Handle sockets
+                    pass
 
 
 # NE PAS ÉDITER PASSÉ CE POINT

@@ -18,14 +18,12 @@ import gloutils
 
 
 class Client:
-    _username: str = ""
-    _socket: socket.socket
     """Client pour le serveur mail @glo2000.ca 2025."""
 
     def __init__(self, destination: str) -> None:
-        _socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        _socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._username: str = ""
         try: 
             host_ip = socket.gethostbyname(destination)
         except socket.gaierror: 
@@ -33,12 +31,11 @@ class Client:
             sys.exit(1) 
 
         try:
-            _socket.connect((host_ip, gloutils.APP_PORT))
+            self._socket.connect((host_ip, gloutils.APP_PORT))
         except socket.error:
             print("Une erreur est survenue lors de la connexion au serveur.", file=sys.stderr)
             exit(1)
         print(f"Connected to server {host_ip} with port {gloutils.APP_PORT}")
-
 
     def _register(self) -> None:
         username = input("Entrez un nom d'utilisateur: ")
@@ -53,11 +50,14 @@ class Client:
 
         message: gloutils.GloMessage = {
             "header": gloutils.Headers.AUTH_REGISTER,
-            payload: payload
+            "payload": payload
         }
+        data = json.dumps(message)
+        glosocket.send_mesg(self._socket, data)
 
-        glosocket.send_mesg(self._socket, message)
-
+        data = glosocket.recv_mesg(self._socket)
+        reply = json.loads(data)
+        print(reply)
         """
         Demande un nom d'utilisateur et un mot de passe et les transmet au
         serveur avec l'entête `AUTH_REGISTER`.
