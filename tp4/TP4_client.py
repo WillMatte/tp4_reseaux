@@ -16,7 +16,7 @@ import glosocket
 import gloutils
 
 
-port = 11123
+
 class Client:
     _username: str = ""
     _socket: socket.socket
@@ -33,7 +33,7 @@ class Client:
             sys.exit(1) 
 
         try:
-            _socket.connect((host_ip, port)) 
+            _socket.connect((host_ip, gloutils.APP_PORT))
         except socket.error:
             print("Une erreur est survenue lors de la connexion au serveur.", file=sys.stderr)
             exit(1)

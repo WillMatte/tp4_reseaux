@@ -61,6 +61,7 @@ class Server:
 
     def _accept_client(self) -> None:
         """Accepte un nouveau client."""
+        print("new client accepted")
         new_soc, _ = self._server_socket.accept()
         self._client_socs.append(new_soc)
 
@@ -77,6 +78,7 @@ class Server:
         associe le socket au nouvel l'utilisateur et retourne un succès,
         sinon retourne un message d'erreur.
         """
+        print("Creating account!")
         return gloutils.GloMessage()
 
     def _login(
@@ -138,11 +140,24 @@ class Server:
         while True:
             # Select readable sockets
             result = select.select(self._client_socs + [self._server_socket], [], [])
-            waiters.append(result[0])
+            waiters.extend(result[0])
             for waiter in waiters:
-                if waiter == self._server_socket:
+                waiters.pop(0)
+                if waiter is self._server_socket:
                     self._accept_client()
-                # Handle sockets
+                else:
+                    try:
+                        data = glosocket.recv_mesg(waiter)
+                    except glosocket.GLOSocketError:
+                        self._logout(waiter)
+                        continue
+
+                match json.loads(data):
+                    case {"header": gloutils.Headers.AUTH_LOGIN}:
+                        self._login(waiter, data)
+                    case {"header": gloutils.Headers.AUTH_REGISTER}:
+                        self._create_account(waiter, data)
+                #Handle sockets
                 pass
 
 
