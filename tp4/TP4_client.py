@@ -74,6 +74,22 @@ class Client:
         Si la connexion est effectuée avec succès, l'attribut `_username`
         est mis à jour, sinon l'erreur est affichée.
         """
+        username = input("Entrez un nom d'utilisateur: ")
+        password = getpass.getpass("Entrez un mot de passe: ")
+        payload: gloutils.AuthPayload = {
+            "username": username,
+            "password": password
+        }
+        message: gloutils.GloMessage = {
+            "header": gloutils.Headers.AUTH_LOGIN,
+            "payload": payload
+        }
+        data = json.dumps(message)
+        glosocket.send_mesg(self._socket, data)
+
+        data = glosocket.recv_mesg(self._socket)
+        reply = json.loads(data)
+        print(reply)
 
     def _quit(self) -> None:
         """

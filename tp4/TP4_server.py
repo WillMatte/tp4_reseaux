@@ -44,7 +44,7 @@ class Server:
             sys.exit(1)
 
         self._client_socs: list[socket.socket] = []
-        self._logged_users = {}
+        self._logged_users: [socket.socket, str] = {}
         self.validate_directories()
 
 
@@ -120,11 +120,14 @@ class Server:
     def _create_user_dir(username:str) -> None:
         os.mkdir(f"./{gloutils.SERVER_DATA_DIR}/{username}")
 
-    @staticmethod
-    def _hash_and_save_password(username: str, password: str):
-        password = hashlib.sha3_512(password.encode("utf-8")).hexdigest()
+    def _hash_and_save_password(self, username: str, password: str):
+        password = self._hash_password(password)
         with open(f"./{gloutils.SERVER_DATA_DIR}/{username}/{gloutils.PASSWORD_FILENAME}.txt", "w") as file:
             file.write(password)
+
+    @staticmethod
+    def _hash_password(password: str):
+        return hashlib.sha3_512(password.encode("utf-8")).hexdigest()
 
     def _login(
         self, client_soc: socket.socket, payload: gloutils.AuthPayload
@@ -135,7 +138,37 @@ class Server:
         Si les identifiants sont valides, associe le socket à l'utilisateur et
         retourne un succès, sinon retourne un message d'erreur.
         """
-        return gloutils.GloMessage()
+        print("user loggin in")
+        error = {}
+        if not os.path.isdir(f"{gloutils.SERVER_DATA_DIR}/{payload['username']}"):
+            error['username_error'] = "Le nom d'utilisateur n'existe pas"
+            error_payload: gloutils.ErrorPayload = {
+                "error_messages": error
+            }
+            print("login error")
+            return gloutils.GloMessage(
+                header=gloutils.Headers.ERROR,
+                payload=error_payload
+            )
+        if not self._validate_password(payload['username'], payload['password']):
+            error['password_error'] = "Mauvais mot de passe"
+            error_payload: gloutils.ErrorPayload = {
+                "error_messages": error
+            }
+            print("login error")
+            return gloutils.GloMessage(
+                header=gloutils.Headers.ERROR,
+                payload=error_payload
+            )
+        self._logged_users[client_soc] = payload['username']
+        print("login successful")
+        return gloutils.GloMessage(header=gloutils.Headers.OK)
+
+    def _validate_password(self, username: str, password: str) -> bool:
+        password = self._hash_password(password)
+        with open(f"{gloutils.SERVER_DATA_DIR}/{username}/{gloutils.PASSWORD_FILENAME}.txt", "r") as file:
+            stored_password = file.read().strip()
+        return password == stored_password
 
     def _logout(self, client_soc: socket.socket) -> None:
         """Déconnecte un utilisateur."""
@@ -198,8 +231,9 @@ class Server:
                         continue
 
                     match json.loads(data):
-                        case {"header": gloutils.Headers.AUTH_LOGIN}:
-                            self._login(waiter, data.payload)
+                        case {"header": gloutils.Headers.AUTH_LOGIN, "payload": payload}:
+                            glosocket.send_mesg(waiter, json.dumps(self._login(waiter, payload)))
+                            print(self._logged_users)
                         case {"header": gloutils.Headers.AUTH_REGISTER, "payload": payload}:
                             glosocket.send_mesg(waiter, json.dumps(self._create_account(waiter, payload)))
                     #Handle sockets
