@@ -71,7 +71,7 @@ class Client:
         try: 
             host_ip = socket.gethostbyname(destination)
         except socket.gaierror: 
-            print ("there was an error resolving the host", file=sys.stderr)
+            print("there was an error resolving the host", file=sys.stderr)
             sys.exit(1) 
 
         try:
@@ -117,6 +117,7 @@ class Client:
         except glosocket.GLOSocketError:
             print("Une erreur est survenue lors de la fermeture de la connexion avec le serveur.", file=sys.stderr)            
 
+
     def _read_email(self) -> None:
         readMailMessage = gloutils.GloMessage(
             header=gloutils.Headers.INBOX_READING_REQUEST
@@ -149,37 +150,66 @@ class Client:
         message = getServerMessage(self._socket)
         email = gloutils.EmailContentPayload(message.get("payload"))
 
-        ## debug
-        print(email)
-
         print(gloutils.EMAIL_DISPLAY.format(
-            source=email.get("sender"),
-            destination=email.get("destination"),
+            # sender=email.get("sender"),÷
+            to=email.get("destination"),
             subject=email.get("subject"),
             date=email.get("date"),
-            content=email.get("content")
+            body=email.get("content")
         ))
 
     def _send_email(self) -> None:
-        """
-        Demande à l'utilisateur respectivement:
-        - l'adresse email du destinataire,
-        - le sujet du message,
-        - le corps du message.
+        email = input("Entrez l'adresse du destinataire: ")
+        subject = input("Entrez le sujet: ")
+        print("Entrez le contenu du courriel, terminez la saisie avec un'.'seul sur une ligne:")
+        isWritingContent = True
+        content = []
+        while isWritingContent:
+            line = input()
+            if line == ".":
+                isWritingContent = False
+            else:
+                content.append(line)
 
-        La saisie du corps se termine par un point seul sur une ligne.
+        content = "".join(content)
 
-        Transmet ces informations avec l'entête `EMAIL_SENDING`.
-        """
+        message = gloutils.GloMessage(
+            header=gloutils.Headers.EMAIL_SENDING,
+            payload=gloutils.EmailContentPayload(
+                # sender=self._username
+                destination=email,
+                subject=subject,
+                content=content,
+                date=gloutils.get_current_utc_time()
+            )
+        )
+
+        glosocket.send_mesg(self._socket, json.dumps(message))
 
     def _check_stats(self) -> None:
-        """
-        Demande les statistiques au serveur avec l'entête `STATS_REQUEST`.
+        message = gloutils.GloMessage(
+            header=gloutils.Headers.STATS_REQUEST
+        )
 
-        Affiche les statistiques à l'aide du gabarit `STATS_DISPLAY`.
-        """
+        glosocket.send_mesg(self._socket, json.dumps(message))
+
+        res = getServerMessage(self._socket)
+        payload = gloutils.StatsPayload(res.get("payload"))
+
+        print(gloutils.STATS_DISPLAY.format(
+            count=payload.get("count"),
+            size=payload.get("size")
+        ))
 
     def _logout(self) -> None:
+        message = gloutils.GloMessage(
+            header=gloutils.Headers.AUTH_LOGOUT
+        )
+
+        glosocket.send_mesg(self._socket, json.dumps(message))
+
+        getServerMessage(self._socket)
+
         """
         Préviens le serveur avec l'entête `AUTH_LOGOUT`.
 
@@ -200,7 +230,6 @@ class Client:
                         case "2":
                             self._login()
                         case "3":
-                            self._quit()
                             should_quit = True
                         case _:
                             print("Choix invalide, veuillez réessayer.")
@@ -228,6 +257,8 @@ class Client:
                 print(e, file=sys.stderr)
             except EOFError:
                 should_quit = True
+            except ValueError:
+                print("Reponse invalide du serveur.")
             except glosocket.GLOSocketError:
                 print("Connexion avec le serveur interrompue.")
                 exit(1)
