@@ -15,7 +15,51 @@ import sys
 import glosocket
 import gloutils
 
+from typing import Union
 
+class ErrorResponse(Exception):
+    pass
+
+class BadResponse(Exception):
+    pass
+
+class BadChoice(Exception):
+    pass
+
+def castString(str_val: str, type_val: type) -> type:
+    try:
+        message = json.loads(str_val)
+        return message
+    except (ValueError, TypeError, json.JSONDecodeError) as e:
+        raise BadResponse(f"Reponse invalide du serveur (Type attendu: {type_val}): {e}")
+
+def getServerMessage(socket: socket.socket) -> gloutils.GloMessage:
+
+    res = glosocket.recv_mesg(socket)
+
+    message: gloutils.GloMessage = castString(res, gloutils.GloMessage)
+    match message.get("header"):
+        case gloutils.Headers.OK:
+            return message
+        case gloutils.Headers.ERROR:
+            errorPayload = gloutils.ErrorPayload (message.get("payload"))
+            errorMessage = errorPayload.get("error_message")
+            if errorMessage != None:
+                raise ErrorResponse(errorMessage)
+            else:
+                raise ErrorResponse("Erreur inconnue, veuillez réessayer.")
+        case _ as e:
+            raise BadResponse(f"Entête invalide de la part du serveur: {e}")
+
+def getChoice(choicesNumber: int) -> int:
+    choice = input(f"Entrez votre choix [1-{choicesNumber}]: ")
+    try:
+        number = int(choice)
+        if number < 1 or number > choicesNumber:
+            raise BadChoice(f"Invalid choice: {number}")
+        return number
+    except ValueError:
+        raise BadChoice(f"Invalid choice: \"{choice}\"")
 
 class Client:
     """Client pour le serveur mail @glo2000.ca 2025."""
@@ -37,83 +81,84 @@ class Client:
             exit(1)
         print(f"Connected to server {host_ip} with port {gloutils.APP_PORT}")
 
-    def _register(self) -> None:
+    
+    def _authenticate(self, header: Union[gloutils.Headers.AUTH_LOGIN, gloutils.Headers.AUTH_REGISTER]):
         username = input("Entrez un nom d'utilisateur: ")
         password = getpass.getpass("Entrez un mot de passe: ")
 
-        payload: gloutils.AuthPayload = {
-            "username": username,
-            "password": password
-        }
+        message = gloutils.GloMessage(
+            header=header,
+            payload=gloutils.AuthPayload(
+                username=username,
+                password=password
+         )
+        )
 
-        print(payload)
+        glosocket.send_mesg(self._socket, json.dumps(message))
+        
+        getServerMessage(self._socket)
+        
+        self._username = username
 
-        message: gloutils.GloMessage = {
-            "header": gloutils.Headers.AUTH_REGISTER,
-            "payload": payload
-        }
-        data = json.dumps(message)
-        glosocket.send_mesg(self._socket, data)
-
-        data = glosocket.recv_mesg(self._socket)
-        reply = json.loads(data)
-        print(reply)
-        """
-        Demande un nom d'utilisateur et un mot de passe et les transmet au
-        serveur avec l'entête `AUTH_REGISTER`.
-
-        Si la création du compte s'est effectuée avec succès, l'attribut
-        `_username` est mis à jour, sinon l'erreur est affichée.
-        """
+    def _register(self) -> None:
+        self._authenticate(gloutils.Headers.AUTH_REGISTER)
 
     def _login(self) -> None:
-        """
-        Demande un nom d'utilisateur et un mot de passe et les transmet au
-        serveur avec l'entête `AUTH_LOGIN`.
-
-        Si la connexion est effectuée avec succès, l'attribut `_username`
-        est mis à jour, sinon l'erreur est affichée.
-        """
-        username = input("Entrez un nom d'utilisateur: ")
-        password = getpass.getpass("Entrez un mot de passe: ")
-        payload: gloutils.AuthPayload = {
-            "username": username,
-            "password": password
-        }
-        message: gloutils.GloMessage = {
-            "header": gloutils.Headers.AUTH_LOGIN,
-            "payload": payload
-        }
-        data = json.dumps(message)
-        glosocket.send_mesg(self._socket, data)
-
-        data = glosocket.recv_mesg(self._socket)
-        reply = json.loads(data)
-        print(reply)
+        self._authenticate(gloutils.Headers.AUTH_LOGIN)
 
     def _quit(self) -> None:
-        """
-        Préviens le serveur de la déconnexion avec l'entête `BYE` et ferme le
-        socket du client.
-        """
-        message: gloutils.GloMessage = {
-            "header": gloutils.Headers.BYE
-        }
-        glosocket.send_mesg(self._socket, json.dumps(message))
+        byeMessage = gloutils.GloMessage(
+            header=gloutils.Headers.BYE
+        ) 
+
+        try:
+            glosocket.send_mesg(self._socket, json.dumps(byeMessage))
+            self._socket.close()
+        except glosocket.GLOSocketError:
+            print("Une erreur est survenue lors de la fermeture de la connexion avec le serveur.", file=sys.stderr)            
 
     def _read_email(self) -> None:
-        """
-        Demande au serveur la liste de ses courriels avec l'entête
-        `INBOX_READING_REQUEST`.
+        readMailMessage = gloutils.GloMessage(
+            header=gloutils.Headers.INBOX_READING_REQUEST
+        )
 
-        Affiche la liste des courriels puis transmet le choix de l'utilisateur
-        avec l'entête `INBOX_READING_CHOICE`.
+        glosocket.send_mesg(self._socket, json.dumps(readMailMessage))
+        message = getServerMessage(self._socket)
+        mailRequestPayload = gloutils.EmailListPayload(message.get("payload"))
 
-        Affiche le courriel à l'aide du gabarit `EMAIL_DISPLAY`.
+        emailList = mailRequestPayload.get("email_list")
 
-        S'il n'y a pas de courriel à lire, l'utilisateur est averti avant de
-        retourner au menu principal.
-        """
+        if emailList == None or emailList.__len__() == 0:
+            print("Vous n'avez pas encore reçu de mail.")
+            return
+
+
+        for i, mailInfo in enumerate(mailRequestPayload.get("email_list")):
+            print(f"#{i + 1} {mailInfo}")
+
+        choice = getChoice(emailList.__len__())
+
+        emailChoiceMessage = gloutils.GloMessage(
+            header=gloutils.Headers.INBOX_READING_CHOICE,
+            payload=gloutils.EmailChoicePayload(
+                choice=choice
+            )
+        )
+
+        glosocket.send_mesg(self._socket, json.dumps(emailChoiceMessage))
+        message = getServerMessage(self._socket)
+        email = gloutils.EmailContentPayload(message.get("payload"))
+
+        ## debug
+        print(email)
+
+        print(gloutils.EMAIL_DISPLAY.format(
+            source=email.get("sender"),
+            destination=email.get("destination"),
+            subject=email.get("subject"),
+            date=email.get("date"),
+            content=email.get("content")
+        ))
 
     def _send_email(self) -> None:
         """
@@ -175,6 +220,12 @@ class Client:
                         case _:
                             print("Choix invalide, veuillez réessayer.")
                     pass
+            except BadResponse as e:
+                print(e, file=sys.stderr)
+            except ErrorResponse as e:
+                print(e, file=sys.stderr)
+            except BadChoice as e:
+                print(e, file=sys.stderr)
             except EOFError:
                 should_quit = True
             except glosocket.GLOSocketError:
