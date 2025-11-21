@@ -14,24 +14,9 @@ import sys
 
 import glosocket
 import gloutils
+from tp4utils import BadChoice, BadPacket, ErrorResponse, castString
 
 from typing import Union
-
-class ErrorResponse(Exception):
-    pass
-
-class BadResponse(Exception):
-    pass
-
-class BadChoice(Exception):
-    pass
-
-def castString(str_val: str, type_val: type) -> type:
-    try:
-        message = json.loads(str_val)
-        return message
-    except (ValueError, TypeError, json.JSONDecodeError) as e:
-        raise BadResponse(f"Reponse invalide du serveur (Type attendu: {type_val}): {e}")
 
 def getServerMessage(socket: socket.socket) -> gloutils.GloMessage:
 
@@ -49,17 +34,17 @@ def getServerMessage(socket: socket.socket) -> gloutils.GloMessage:
             else:
                 raise ErrorResponse("Erreur inconnue, veuillez réessayer.")
         case _ as e:
-            raise BadResponse(f"Entête invalide de la part du serveur: {e}")
+            raise BadPacket(f"Entête invalide de la part du serveur: {e}")
 
 def getChoice(choicesNumber: int) -> int:
     choice = input(f"Entrez votre choix [1-{choicesNumber}]: ")
     try:
         number = int(choice)
         if number < 1 or number > choicesNumber:
-            raise BadChoice(f"Invalid choice: {number}")
+            raise BadChoice(f"Choix invalide: {number}")
         return number
     except ValueError:
-        raise BadChoice(f"Invalid choice: \"{choice}\"")
+        raise BadChoice(f"Choix invalide: \"{choice}\"")
 
 class Client:
     """Client pour le serveur mail @glo2000.ca 2025."""
@@ -71,13 +56,13 @@ class Client:
         try: 
             host_ip = socket.gethostbyname(destination)
         except socket.gaierror: 
-            print("there was an error resolving the host", file=sys.stderr)
+            print("there was an error resolving the host")
             sys.exit(1) 
 
         try:
             self._socket.connect((host_ip, gloutils.APP_PORT))
         except socket.error:
-            print("Une erreur est survenue lors de la connexion au serveur.", file=sys.stderr)
+            print("Une erreur est survenue lors de la connexion au serveur.")
             exit(1)
         print(f"Connected to server {host_ip} with port {gloutils.APP_PORT}")
 
@@ -115,7 +100,7 @@ class Client:
             glosocket.send_mesg(self._socket, json.dumps(byeMessage))
             self._socket.close()
         except glosocket.GLOSocketError:
-            print("Une erreur est survenue lors de la fermeture de la connexion avec le serveur.", file=sys.stderr)            
+            print("Une erreur est survenue lors de la fermeture de la connexion avec le serveur.")            
 
 
     def _read_email(self) -> None:
@@ -135,7 +120,7 @@ class Client:
 
 
         for i, mailInfo in enumerate(mailRequestPayload.get("email_list")):
-            print(f"#{i + 1} {mailInfo}")
+            print(mailInfo)
 
         choice = getChoice(emailList.__len__())
 
@@ -151,7 +136,7 @@ class Client:
         email = gloutils.EmailContentPayload(message.get("payload"))
 
         print(gloutils.EMAIL_DISPLAY.format(
-            # sender=email.get("sender"),÷
+            sender=email.get("sender"),
             to=email.get("destination"),
             subject=email.get("subject"),
             date=email.get("date"),
@@ -171,12 +156,12 @@ class Client:
             else:
                 content.append(line)
 
-        content = "".join(content)
+        content = "\n".join(content)
 
         message = gloutils.GloMessage(
             header=gloutils.Headers.EMAIL_SENDING,
             payload=gloutils.EmailContentPayload(
-                # sender=self._username
+                sender=f"{self._username}@{gloutils.SERVER_DOMAIN}",
                 destination=email,
                 subject=subject,
                 content=content,
@@ -185,6 +170,8 @@ class Client:
         )
 
         glosocket.send_mesg(self._socket, json.dumps(message))
+        getServerMessage(self._socket)
+        print("Email envoyé avec succès.")
 
     def _check_stats(self) -> None:
         message = gloutils.GloMessage(
@@ -209,6 +196,7 @@ class Client:
         glosocket.send_mesg(self._socket, json.dumps(message))
 
         getServerMessage(self._socket)
+        self._username = ""
 
         """
         Préviens le serveur avec l'entête `AUTH_LOGOUT`.
@@ -223,38 +211,34 @@ class Client:
             try:
                 if not self._username:
                     print(gloutils.CLIENT_AUTH_CHOICE)
-                    choice = input("Entrez votre choix [1-3]: ")
+                    choice = getChoice(3)
                     match (choice):
-                        case "1":
+                        case 1:
                             self._register()
-                        case "2":
+                        case 2:
                             self._login()
-                        case "3":
+                        case 3:
                             should_quit = True
-                        case _:
-                            print("Choix invalide, veuillez réessayer.")
                     pass
                 else:
                     print(gloutils.CLIENT_USE_CHOICES)
-                    choice = input("Entrez votre choix [1-4]: ")
+                    choice = getChoice(4)
                     match (choice):
-                        case "1":
+                        case 1:
                             self._read_email()
-                        case "2":
+                        case 2:
                             self._send_email()
-                        case "3":
+                        case 3:
                             self._check_stats()
-                        case "4":
+                        case 4:
                             self._logout()
-                        case _:
-                            print("Choix invalide, veuillez réessayer.")
                     pass
-            except BadResponse as e:
-                print(e, file=sys.stderr)
             except ErrorResponse as e:
-                print(e, file=sys.stderr)
+                print(e)
+            except BadPacket as e:
+                print(e)
             except BadChoice as e:
-                print(e, file=sys.stderr)
+                print(e)
             except EOFError:
                 should_quit = True
             except ValueError:
